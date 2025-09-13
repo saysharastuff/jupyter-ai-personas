@@ -1,12 +1,10 @@
 from typing import Any
 
 import emoji
-from jupyterlab_chat.models import Message
+from jupyterlab_chat.models import Message, NewMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables.history import RunnableWithMessageHistory
 
-from jupyter_ai.history import YChatHistory
-from jupyter_ai.personas import BasePersona, PersonaDefaults
+from jupyter_ai.personas.base_persona import BasePersona, PersonaDefaults
 from jupyter_ai.personas.jupyternaut.prompt_template import JupyternautVariables
 
 from langchain.prompts import (
@@ -53,6 +51,7 @@ PROMPT_TEMPLATE = ChatPromptTemplate.from_messages(
     ]
 )
 
+
 class EmojiPersona(BasePersona):
     """
     The Emoji persona, responds to your queries with emojis.
@@ -60,7 +59,6 @@ class EmojiPersona(BasePersona):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-    
 
     @property
     def defaults(self):
@@ -88,16 +86,11 @@ class EmojiPersona(BasePersona):
         print(f"reply from model: {reply}")
         reply = emoji.emojize(reply, variant="emoji_type")
         print(f"reply after emojize: {reply}")
-        self.send_message(reply)
+        self.ychat.add_message(NewMessage(body=reply, sender=self.id))
 
     def build_runnable(self) -> Any:
         llm = self.config_manager.lm_provider(**self.config_manager.lm_provider_params)
-        
+
         runnable = PROMPT_TEMPLATE | llm | StrOutputParser()
-        runnable = RunnableWithMessageHistory(
-            runnable=runnable,  #  type:ignore[arg-type]
-            get_session_history=lambda: YChatHistory(ychat=self.ychat, k=0),
-            input_messages_key="input",
-            history_messages_key="history",
-        )
         return runnable
+

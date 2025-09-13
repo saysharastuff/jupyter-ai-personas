@@ -3,6 +3,23 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import sys
 import asyncio
 from dataclasses import dataclass
+import types
+import os
+
+# create dummy modules for jupyter_ai to allow patching
+sys.modules.setdefault("jupyter_ai", types.ModuleType("jupyter_ai"))
+sys.modules.setdefault("jupyter_ai.personas", types.ModuleType("jupyter_ai.personas"))
+sys.modules.setdefault(
+    "jupyter_ai.personas.persona_awareness",
+    types.ModuleType("jupyter_ai.personas.persona_awareness"),
+)
+sys.modules.setdefault(
+    "jupyter_ai.personas.base_persona",
+    types.ModuleType("jupyter_ai.personas.base_persona"),
+)
+
+# ensure repository root is on path
+sys.path.insert(0, os.getcwd())
 
 # Force pytest to load asyncio plugin
 pytest_plugins = ("pytest_asyncio",)
@@ -32,6 +49,7 @@ class BasePersona:
         self.log = log
         self.message_interrupted = message_interrupted
         self.name = "PRReviewPersona"
+        self.id = "pr_review_persona"
 
         # Set up config_manager with required attributes
         self.config_manager.lm_provider = MagicMock()
@@ -49,16 +67,6 @@ class BasePersona:
     def send_message(self, message):
         # Mock implementation for send_message
         pass
-
-
-# mock YChatHistory class
-class YChatHistory:
-    def __init__(self, ychat=None, k=None):
-        self.ychat = ychat
-        self.k = k
-
-    async def aget_messages(self):
-        return []
 
 
 # PersonaAwareness class
@@ -97,8 +105,17 @@ def mock_asyncio_operations():
 
 
 patch(
-    "jupyter_ai.personas.persona_awareness.PersonaAwareness", PersonaAwareness
+    "jupyter_ai.personas.persona_awareness.PersonaAwareness",
+    PersonaAwareness,
+    create=True,
 ).start()
-patch("jupyter_ai.personas.base_persona.BasePersona", BasePersona).start()
-patch("jupyter_ai.personas.base_persona.PersonaDefaults", PersonaDefaults).start()
-patch("jupyter_ai.history.YChatHistory", YChatHistory).start()
+patch(
+    "jupyter_ai.personas.base_persona.BasePersona",
+    BasePersona,
+    create=True,
+).start()
+patch(
+    "jupyter_ai.personas.base_persona.PersonaDefaults",
+    PersonaDefaults,
+    create=True,
+).start()

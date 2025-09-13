@@ -2,14 +2,12 @@ import os
 import re
 import logging
 from jupyter_ai.personas.base_persona import BasePersona, PersonaDefaults
-from jupyterlab_chat.models import Message
-from jupyter_ai.history import YChatHistory
+from jupyterlab_chat.models import Message, NewMessage
 from agno.agent import Agent
 from agno.models.aws import AwsBedrock
 import boto3
 from agno.tools.github import GithubTools
 from agno.tools.reasoning import ReasoningTools
-from langchain_core.messages import HumanMessage
 from agno.team.team import Team
 from .fetch_ci_failures import fetch_ci_failures
 from .template import PRPersonaVariables, PR_PROMPT_TEMPLATE
@@ -75,15 +73,10 @@ class PRReviewPersona(BasePersona):
                 "   - Use the exact format: [{\"path\": \"file.py\", \"position\": 10, \"body\": \"issue description\"}]",
             ],
             tools=[
-                GithubTools(
-                    get_pull_requests=True,
-                    get_pull_request_changes=True,
-                    get_file_content=True,
-                    get_directory_content=True,
-                ),
+                GithubTools(),
                 fetch_ci_failures,
                 create_inline_pr_comments,
-                ReasoningTools(add_instructions=True, think=True, analyze=True),
+                ReasoningTools(),
             ],
         )
 
@@ -113,13 +106,7 @@ class PRReviewPersona(BasePersona):
                 "3. Verify proper input sanitization",
                 "4. Check for insecure direct object references",
             ],
-            tools=[
-                ReasoningTools(
-                    add_instructions=True,
-                    think=True,
-                    analyze=True,
-                ),
-            ],
+            tools=[ReasoningTools()],
             markdown=True,
         )
 
@@ -136,12 +123,7 @@ class PRReviewPersona(BasePersona):
                 "   - Report findings to the coordinator for comment posting",
                 "Note: Requires a valid GitHub personal access token in GITHUB_ACCESS_TOKEN environment variable",
             ],
-            tools=[
-                GithubTools(
-                    get_pull_requests=True,
-                    get_pull_request_changes=True,
-                ),
-            ],
+            tools=[GithubTools()],
             markdown=True,
         )
 
@@ -183,11 +165,8 @@ class PRReviewPersona(BasePersona):
             add_datetime_to_instructions=True,
             show_tool_calls=False,
             tools=[
-                GithubTools(
-                    get_pull_requests=True,
-                    get_pull_request_changes=True,
-                ),
-                ReasoningTools(add_instructions=True, think=True, analyze=True),
+                GithubTools(),
+                ReasoningTools(),
             ],
         )
 
@@ -200,20 +179,17 @@ class PRReviewPersona(BasePersona):
         if pr_match:
             repo_name = pr_match.group(1)
             pr_number = pr_match.group(2)
-            self.send_message(f"Got your request. Processing PR #{pr_number} from repo: {repo_name}")
+            self.ychat.add_message(
+                NewMessage(
+                    body=f"Got your request. Processing PR #{pr_number} from repo: {repo_name}",
+                    sender=self.id,
+                )
+            )
   
         provider_name = self.config_manager.lm_provider.name
         model_id = self.config_manager.lm_provider_params["model_id"]
 
-        history = YChatHistory(ychat=self.ychat, k=2)
-        messages = await history.aget_messages()
-
         history_text = ""
-        if messages:
-            history_text = "\nPrevious conversation:\n"
-            for msg in messages:
-                role = "User" if isinstance(msg, HumanMessage) else "Assistant"
-                history_text += f"{role}: {msg.content}\n"
 
         variables = PRPersonaVariables(
             input=message.body,
@@ -249,7 +225,7 @@ class PRReviewPersona(BasePersona):
                         await asyncio.sleep(delay)
                         if not processing.is_set():
                             break
-                        self.send_message(message)
+                        self.ychat.add_message(NewMessage(body=message, sender=self.id))
                 except asyncio.CancelledError:
                     logger.debug("Heartbeat task cancelled")
                     raise  # Re-raise to properly terminate the task
@@ -269,7 +245,7 @@ class PRReviewPersona(BasePersona):
                 processing.clear()
                 heartbeat_task.cancel()
 
-                self.send_message(response.content)
+                self.ychat.add_message(NewMessage(body=response.content, sender=self.id))
 
             except Exception as run_error:
                 processing.clear()
@@ -278,8 +254,8 @@ class PRReviewPersona(BasePersona):
 
         except ValueError as e:
             error_message = f"Configuration Error: {str(e)}\nThis may be due to missing or invalid environment variables, model configuration, or input parameters."
-            self.send_message(error_message)
+            self.ychat.add_message(NewMessage(body=error_message, sender=self.id))
 
         except Exception as e:
             error_message = f"PR Review Error ({type(e).__name__}): {str(e)}\nAn unexpected error occurred while the PR review team was analyzing your request."
-            self.send_message(error_message)
+            self.ychat.add_message(NewMessage(body=error_message, sender=self.id))

@@ -1,10 +1,8 @@
 from jupyter_ai.personas.base_persona import BasePersona, PersonaDefaults
-from jupyterlab_chat.models import Message
-from jupyter_ai.history import YChatHistory
+from jupyterlab_chat.models import Message, NewMessage
 from agno.agent import Agent
 from agno.models.aws import AwsBedrock
 import boto3
-from langchain_core.messages import HumanMessage
 from agno.team.team import Team
 from agno.tools.python import PythonTools
 from agno.tools.file import FileTools
@@ -150,16 +148,8 @@ class SoftwareTeamPersona(BasePersona):
 
         provider_name = self.config_manager.lm_provider.name
         model_id = self.config_manager.lm_provider_params["model_id"]
-        
-        history = YChatHistory(ychat=self.ychat, k=2)
-        messages = await history.aget_messages()
 
         history_text = ""
-        if messages:
-            history_text = "\nPrevious conversation:\n"
-            for msg in messages:
-                role = "User" if isinstance(msg, HumanMessage) else "Assistant"
-                history_text += f"{role}: {msg.content}\n"
 
         variables = SoftwareTeamVariables(
             input=message.body,
@@ -179,8 +169,4 @@ class SoftwareTeamPersona(BasePersona):
             show_full_reasoning=True,
         )
         response = response.content
-
-        async def response_iterator():
-            yield response
-        
-        await self.stream_message(response_iterator())
+        self.ychat.add_message(NewMessage(body=response, sender=self.id))

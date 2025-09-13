@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from jupyter_ai_personas.pr_review_persona.persona import PRReviewPersona
-from jupyterlab_chat.models import Message
+from jupyterlab_chat.models import Message, NewMessage
 from agno.team.team import Team
 import asyncio
 from dataclasses import asdict
@@ -21,7 +21,7 @@ class AwaitableAsyncMock(AsyncMock):
 @pytest.fixture
 async def pr_persona():
     # Mock initialization arguments
-    mock_ychat = AsyncMock()
+    mock_ychat = Mock()
     mock_manager = AsyncMock()
     mock_manager.outdated_timeout = 30000
 
@@ -43,6 +43,7 @@ async def pr_persona():
         mock_config_manager.lm_provider_params = {"model_id": "test_model"}
         mock_log = Mock()
         mock_ychat.set_user = AwaitableAsyncMock()
+        mock_ychat.add_message = Mock()
         awareness_instance.set_local_state = AwaitableAsyncMock()
         awareness_instance.set_local_state_field = AwaitableAsyncMock()
 
@@ -117,51 +118,34 @@ async def test_initialize_team(
 @pytest.mark.asyncio
 async def test_process_message_success(pr_persona, mock_message):
     async for persona in pr_persona:
-        persona.send_message = AsyncMock()
+        persona.ychat.add_message = Mock()
 
-        mock_history = AsyncMock()
-        mock_history.aget_messages.return_value = []
         mock_response = Mock()
         mock_response.content = "PR review completed successfully"
 
         mock_team = Mock()
         mock_team.run.return_value = mock_response
 
-        with (
-            patch(
-                "jupyter_ai_personas.pr_review_persona.persona.YChatHistory",
-                return_value=mock_history,
-            ),
-            patch.object(persona, "initialize_team", return_value=mock_team),
-        ):
+        with patch.object(persona, "initialize_team", return_value=mock_team):
             await persona.process_message(mock_message)
 
             assert persona.initialize_team.called
             assert mock_team.run.called
-            assert persona.send_message.called
+            assert persona.ychat.add_message.called
 
 
 @pytest.mark.asyncio
 async def test_process_message_value_error(pr_persona, mock_message):
     async for persona in pr_persona:
-        persona.send_message = AsyncMock()
-
-        mock_history = AsyncMock()
-        mock_history.aget_messages.return_value = []
+        persona.ychat.add_message = Mock()
 
         mock_team = Mock()
         mock_team.run.side_effect = ValueError("Test error")
 
-        with (
-            patch(
-                "jupyter_ai_personas.pr_review_persona.persona.YChatHistory",
-                return_value=mock_history,
-            ),
-            patch.object(persona, "initialize_team", return_value=mock_team),
-        ):
+        with patch.object(persona, "initialize_team", return_value=mock_team):
             await persona.process_message(mock_message)
 
-            call_args = persona.send_message.call_args[0][0]
+            call_args = persona.ychat.add_message.call_args_list[-1][0][0].body
             assert "Configuration Error" in call_args
             assert "Test error" in call_args
 
@@ -169,25 +153,16 @@ async def test_process_message_value_error(pr_persona, mock_message):
 @pytest.mark.asyncio
 async def test_process_message_boto_error(pr_persona, mock_message):
     async for persona in pr_persona:
-        persona.send_message = AsyncMock()
-
-        mock_history = AsyncMock()
-        mock_history.aget_messages.return_value = []
+        persona.ychat.add_message = Mock()
         from boto3.exceptions import Boto3Error
 
         mock_team = Mock()
         mock_team.run.side_effect = Boto3Error("AWS error")
 
-        with (
-            patch(
-                "jupyter_ai_personas.pr_review_persona.persona.YChatHistory",
-                return_value=mock_history,
-            ),
-            patch.object(persona, "initialize_team", return_value=mock_team),
-        ):
+        with patch.object(persona, "initialize_team", return_value=mock_team):
             await persona.process_message(mock_message)
 
-            call_args = persona.send_message.call_args[0][0]
+            call_args = persona.ychat.add_message.call_args_list[-1][0][0].body
             assert "PR Review Error" in call_args
             assert "AWS error" in call_args
 
@@ -195,23 +170,14 @@ async def test_process_message_boto_error(pr_persona, mock_message):
 @pytest.mark.asyncio
 async def test_process_message_general_exception(pr_persona, mock_message):
     async for persona in pr_persona:
-        persona.send_message = AsyncMock()
-
-        mock_history = AsyncMock()
-        mock_history.aget_messages.return_value = []
+        persona.ychat.add_message = Mock()
 
         mock_team = Mock()
         mock_team.run.side_effect = Exception("General error")
 
-        with (
-            patch(
-                "jupyter_ai_personas.pr_review_persona.persona.YChatHistory",
-                return_value=mock_history,
-            ),
-            patch.object(persona, "initialize_team", return_value=mock_team),
-        ):
+        with patch.object(persona, "initialize_team", return_value=mock_team):
             await persona.process_message(mock_message)
 
-            call_args = persona.send_message.call_args[0][0]
+            call_args = persona.ychat.add_message.call_args_list[-1][0][0].body
             assert "PR Review Error" in call_args
             assert "General error" in call_args

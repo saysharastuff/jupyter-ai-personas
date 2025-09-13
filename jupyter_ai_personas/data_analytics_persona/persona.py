@@ -5,10 +5,7 @@ import boto3
 import datetime
 from pathlib import Path
 from jupyter_ai.personas.base_persona import BasePersona, PersonaDefaults
-from jupyterlab_chat.models import Message
-from jupyter_ai.history import YChatHistory
-
-from langchain_core.messages import HumanMessage
+from jupyterlab_chat.models import Message, NewMessage
 from agno.agent import Agent
 from agno.models.aws import AwsBedrock
 from agno.team.team import Team
@@ -336,20 +333,7 @@ class DataAnalyticsTeam(BasePersona):
         provider_name = self.config_manager.lm_provider.name
         model_id = self.config_manager.lm_provider_params["model_id"]
 
-        # Get conversation history with error handling
-        try:
-            history = YChatHistory(ychat=self.ychat, k=3)
-            messages = await history.aget_messages()
-        except Exception as e:
-            logger.warning(f"Could not retrieve chat history: {e}")
-            messages = []
-
         history_text = ""
-        if messages:
-            history_text = "\nPrevious conversation:\n"
-            for msg in messages:
-                role = "User" if isinstance(msg, HumanMessage) else "Assistant"
-                history_text += f"{role}: {msg.content}\n"
 
         # Create system prompt with context and data extraction guidance
         system_prompt = f"""
@@ -417,8 +401,5 @@ class DataAnalyticsTeam(BasePersona):
 
         # Extract key insights for user-friendly response
         response_content = response.content
-
-        async def response_iterator():
-            yield response_content
-
-        await self.stream_message(response_iterator())
+        self.ychat.add_message(NewMessage(body=response_content, sender=self.id))
+        return
