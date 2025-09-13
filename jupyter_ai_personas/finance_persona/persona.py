@@ -1,13 +1,11 @@
 from typing import Any
 from pydantic import Field, BaseModel
 
-from jupyterlab_chat.models import Message
+from jupyterlab_chat.models import Message, NewMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables.history import RunnableWithMessageHistory
 from jupyter_core.paths import jupyter_data_dir
 
-from jupyter_ai.history import YChatHistory
-from jupyter_ai.personas import BasePersona, PersonaDefaults
+from jupyter_ai.personas.base_persona import BasePersona, PersonaDefaults
 from jupyter_ai.personas.jupyternaut.prompt_template import JUPYTERNAUT_PROMPT_TEMPLATE, JupyternautVariables
 from jupyter_ai.config_manager import DEFAULT_CONFIG_PATH
 
@@ -97,7 +95,12 @@ class FinancePersona(BasePersona):
                 # Call the agno_finance function to process the message
                 self.agno_finance(msg)
             else:
-                self.send_message("Error: Query failed. Please try again with a different query.")
+                self.ychat.add_message(
+                    NewMessage(
+                        body="Error: Query failed. Please try again with a different query.",
+                        sender=self.id,
+                    )
+                )
         else: # If the message is not finance-related, use the default runnable
             variables_dict = variables.model_dump()
             reply_stream = runnable.astream(variables_dict)
@@ -107,18 +110,14 @@ class FinancePersona(BasePersona):
         # TODO: support model parameters. maybe we just add it to lm_provider_params in both 2.x and 3.x
         llm = self.config_manager.lm_provider(**self.config_manager.lm_provider_params)
         runnable = JUPYTERNAUT_PROMPT_TEMPLATE | llm | StrOutputParser()
-        runnable = RunnableWithMessageHistory(
-            runnable=runnable,  #  type:ignore[arg-type]
-            get_session_history=lambda: YChatHistory(ychat=self.ychat, k=0),
-            input_messages_key="input",
-            history_messages_key="history",
-        )
         return runnable
     
     # Use Agno to process financial prompts 
     # Multi agent workflow to get stock prices and forecast them using ARIMA
     def agno_finance(self, message: Message):
-        self.send_message("The AGNO Finance agent is processing your request ...")
+        self.ychat.add_message(
+            NewMessage(body="The AGNO Finance agent is processing your request ...", sender=self.id)
+        )
         FINANCIAL_DATASETS_API_KEY = env_api_keys_from_config(API_KEY_NAME="TOGETHER_API_KEY", file_path=DEFAULT_CONFIG_PATH)
         # Agent for stock prices
         stock_price_agent = Agent(
@@ -215,4 +214,4 @@ class FinancePersona(BasePersona):
             response = response.content
         else:
             response = "No response from the Finance Agent. Please try again with a different query."
-        self.send_message(response)
+        self.ychat.add_message(NewMessage(body=response, sender=self.id))
